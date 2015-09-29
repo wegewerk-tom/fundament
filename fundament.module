@@ -1,0 +1,203 @@
+<?php
+/**
+ * @file
+ * Drupal utility functions from wegewerk.
+ *
+ * @license http://www.apache.org/licenses/LICENSE-2.0 Apache License, Version 2.0
+ * @copyright 2015 wegewerk GmbH
+ * @author wegewerk GmbH (www.wegewerk.com)
+ * @author Thomas Stec <first[dot]last@gmail.com>
+ * @author Ryan Barolet-Fogarty <rbf@somemail.com>
+ *
+ * <pre>
+ *                                            _
+ *                                           | |
+ * __      _____  __ _  _____      _____ _ __| | __
+ * \ \ /\ / / _ \/ _` |/ _ \ \ /\ / / _ \ '__| |/ /
+ *  \ V  V /  __/ (_| |  __/\ V  V /  __/ |  |   <
+ *   \_/\_/ \___|\__, |\___| \_/\_/ \___|_|  |_|\_\
+ *                __/ |
+ *               |___/
+ * </pre>
+ **/
+
+/**
+ * A caching wrapper to place around any expensive function.
+ *
+ * $callback can be of the forms:
+ *   (string) $function_name
+ *   (array) array(&$Object, $method_name)
+ *
+ * NOTE: When using objects and methods items are NOT cached
+ * per-INSTANCE, per-call. Instead they are cached per-CLASS, per-call.
+ * If you need per-instance caching put a unique instance ID in $key_params.
+ */
+function fundament_cache($callback, $param_arr, $ttl = NULL, $key_params = array(), $force_expire = FALSE) {
+  // Declare the static cache.
+  static $static_cache = array();
+
+  // Process $callback into $cid
+  if(is_array($callback)) {
+    // Base the cid on callback function name
+    $cid = get_class($callback[0]) .' $Obj->'. $callback[1] .'()';
+  }
+  else {
+    // Base the cid on callback function name
+    $cid = $callback;
+  }
+
+  // Append any $key_params (optional)
+  $cid .= empty($key_params) ? "" : "_". md5(serialize($key_params));
+
+
+  // Only hash the $cid when devel is disabled.
+  $salt = module_exists('devel') ? FALSE : drupal_get_hash_salt();
+  if($salt) {
+    $cid = md5($cid . $salt);
+  }
+
+  // Check static_cache (ie. cached within request)
+  if(!empty($static_cache[$cid])) {
+    $data = $static_cache[$cid];
+  }
+  else {
+    // Assume no data available from cache.
+    $data = FALSE;
+
+    // Check for cached data.
+    if($force_expire == FALSE) {
+      // Is it cached?
+      if ($cache = cache_get($cid, 'cache')) {
+        // Is it fresh?
+        if ($cache->expire > time()) {
+          // Get the data.
+          $data = $cache->data;
+        }
+      }
+    }
+
+    // If uncached or expired get the data "the hard way".
+    if(empty($data)) {
+      $data = call_user_func_array($callback, $param_arr);
+      // Set the remote and static caches
+      $expire = time() + $ttl;
+      cache_set($cid, $data, 'cache', $expire);
+    }
+
+    // Set the static cache.
+    $static_cache[$cid] = $data;
+  }
+  return($data);
+}
+
+function fundament_get_nodes($bundle, $title_search = FALSE, $published = 1, $offset = 0, $limit = NULL) {
+
+  $query = new EntityFieldQuery;
+
+  // Return nodes.
+  $query->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', $bundle)
+    ->entityCondition('status', $published);
+
+  if($title_search) {
+    $query->propertyCondition('title', "%". $title_search_string ."%", "LIKE");
+  }
+
+  if($limit) {
+    $query->range($offset, $limit);
+  }
+  $result = $query->execute();
+
+  if (isset($result['node'])) {
+    $nids = array_keys($result['node']);
+    $nodes = entity_load('node', $nids);
+  }
+
+  $return = empty($nodes['node']) ? FALSE : $nodes['node'];
+  return($return);
+}
+
+function fundament_node_eapi_field_collections_by_field($node, $field_names = array()) {
+
+  // Allow one or more field_names.
+  if(is_string($field_names)) {
+    $field_names = array($field_names);
+  }
+
+  // Wrap node with Entity API.
+  $node = entity_metadata_wrapper('node', $node);
+
+  // Build out an array indexed by collection field_name and field_collection_item id.
+  $collections = array();
+  foreach ($field_names as $field_name) {
+    // Get the first item from the muli-value field collection
+    if(!empty($node->$field_name)) {
+      foreach($node->$field_name as $collection_item) {
+        $collection_item_entity = $collection_item->value();
+        $ids = entity_extract_ids('field_collection_item', $collection_item_entity);
+        $collections[$field_name][$ids[0]] = entity_metadata_wrapper('field_collection_item', $collection_item_entity);
+      }
+    }
+  }
+  return($collections);
+}
+
+// Returns sanitized field_collection_values.
+function fundament_node_field_collection_values($node, $field_names = array()) {
+  $field_collection_values = array();
+  $collections = fundament_node_eapi_field_collections_by_field($node, $field_names);
+  foreach($collections as $field_name => $field) {
+    foreach($field as $collection) {
+      $property_info = $collection->getPropertyInfo();
+      foreach (array_keys($property_info) as $property_name) {
+        $field_collection_values[$field_name][$collection->getIdentifier()][$property_name] = $collection->$property_name->value(array('sanitize' => TRUE));
+      }
+    }
+  }
+  return $field_collection_values;
+}
+
+function fundament_get_terms($bundle, $name_search = FALSE, $offset = 0, $limit = NULL) {
+
+  $query = new EntityFieldQuery;
+
+  // Return nodes.
+  $query->entityCondition('entity_type', 'taxonomy_term')
+    ->entityCondition('bundle', $bundle);
+
+  if($name_search) {
+    $query->propertyCondition('name', $name_search, "LIKE");
+  }
+
+  if($limit) {
+    $query->range($offset, $limit);
+  }
+
+  $result = $query->execute();
+
+  if (isset($result['taxonomy_term'])) {
+    $tids = array_keys($result['taxonomy_term']);
+    $terms = entity_load('taxonomy_term', $tids);
+  }
+
+  $return = empty($terms) ? array() : $terms;
+  return($return);
+}
+
+/**
+ * Implements hook_query_alter().
+ *
+ * See: https://www.drupal.org/node/310077
+ */
+function fundament_query_alter(QueryAlterableInterface $query) {
+
+  // Make node_export_features be less crappy by always presenting the most
+  // recently updated nodes for export.
+  if($query->hasTag('node_export_features')) {
+    $query->fields('n', array('nid', 'title', 'type', 'changed'));
+    $order =& $query->getOrderBy();
+    unset($order['type']);
+    unset($order['title']);
+    $query->orderBy('changed', 'DESC');
+  }
+}

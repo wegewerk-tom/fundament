@@ -1,0 +1,24 @@
+{
+    "name": "wegewerk/drupal/fundament",
+    "type": "drupal-module",
+    "description": "MSF Germany",
+    "minimum-stability": "dev",
+    "authors": [
+        {
+            "name": "Thomas Stec",
+            "email": "first.last@gmail.com"
+        },
+        {
+            "name": "wegewerk GmbH",
+            "homepage": "http://www.wegewerk.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.4"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "vendor-dir": "vendor",
+        "bin-dir": "bin"
+    }
+}

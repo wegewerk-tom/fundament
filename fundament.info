@@ -1,0 +1,5 @@
+name = Fundament
+description = Foundation functionality from wegewerk.
+package = Wegewerk
+version = 1.0
+core = 7.x

@@ -1,0 +1,9 @@
+core = 7.x
+dependencies[] = "ctools"
+description = "Provide ctools access plugin for URL."
+name = "Ctools URL Access"
+package = "ctools"
+
+files[] = ctools_url_access.info
+files[] = ctools_url_access.module
+files[] = plugins/access/ctools_url_access.inc
